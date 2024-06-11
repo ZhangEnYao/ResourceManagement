@@ -1,7 +1,7 @@
 import dataclasses
 
 @dataclasses.dataclass
-class Infinity:
+class Limit:
 
     positive: float = float('inf')
     neutral: int = 0

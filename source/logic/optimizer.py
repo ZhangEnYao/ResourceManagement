@@ -1,26 +1,59 @@
-import collections
+import math
 import itertools
-import enum
 import dataclasses
-
-from source.model.structure import Resource, Task, Pivot, Edge
-from source.logic.assembling import Assembling
+import typing
 
 
+from source.model.structure import Resource, Task, Tasking, Action, Request
+from source.logic.collection import Assemblage, Combination
 
-class Action(enum.Enum):
+class Searcher:
 
-    build: str = enum.auto()
-    unbuild: str = enum.auto()
+    @dataclasses.dataclass(unsafe_hash=True)
+    class Pivot:
 
-@dataclasses.dataclass
-class Tasking:
+        window: int
+        
+        def __post_init__(self):
 
-    resources: tuple[Resource]
+            self.head = 0
+            self.tail = self.head + self.window - 1
 
-    @property
-    def resource(self):
-        return sum(resource.resource for resource in self.resources)
+        @property
+        def middle(self):
+            return math.ceil((self.head + self.tail)/2)
+
+    @dataclasses.dataclass
+    class Edge:
+
+        head: int
+        tail: int
+
+        def __contains__(self, element: int):
+            return self.head <= element < self.tail
+    
+    @classmethod
+    def search(cls, object: object, pool: dict):
+
+        resources = pool.keys()
+        
+        resource = dict(enumerate(resources))
+        edge = Searcher.Edge(head=0, tail=len(resources))
+        pivot = Searcher.Pivot(window=len(resources))
+
+        while pivot.head <= pivot.tail:
+
+            if object == resource[pivot.middle]:
+                break
+
+            elif object > resource[pivot.middle]:
+                pivot.head = pivot.middle + 1
+
+            elif object < resource[pivot.middle]:
+                pivot.tail = pivot.middle - 1
+        
+        if pivot.middle in edge:
+            return pool[resource[pivot.middle]] 
 
 class Optimizer:
 
@@ -30,110 +63,135 @@ class Optimizer:
         self.task = task
     
     @property
-    def availabilities(self) -> tuple[Resource]:
+    def unbuilding(self) -> tuple[Combination]:
 
-        filtering = filter(
-            lambda resource: resource.is_available,
-            self.resources
+        releaseabilities = tuple(
+            filter(
+                lambda resource: not resource.is_available and resource.tasking.priority <= self.task.priority,
+                self.resources
+            )
+        )
+        availibilities = tuple(
+            resource
+            for resource in self.resources
+            if resource.is_available
         )
 
-        return filtering
+        request = Request(
+            requirement=self.task.requirement - sum(resource.resource for resource in availibilities),
+            unit=int(math.pow(2, math.floor(math.log2(len(availibilities))) + 1)) - len(availibilities),
+        )
+
+        taskings = tuple(
+            Tasking(
+                identifier=task,
+                resources=tuple(resources)
+            )
+            for task, resources in itertools.groupby(
+                sorted(
+                    releaseabilities,
+                    key=lambda resource: resource.tasking.identifier
+                ),
+                lambda resource: resource.tasking.identifier
+            )
+        )
+
+        combinations = tuple(
+            Combination.generator(
+                taskings=sorted(
+                    taskings,
+                    key=lambda resource: resource.resource
+                )
+            )
+        )
+
+        combinations = {
+            resource: tuple(
+                sorted(
+                    tuple(subcombination for subcombination in subcombinations if not subcombination.unit < request.unit),
+                    key=lambda subcombination: subcombination.unit
+                )
+            )
+            for resource, subcombinations in itertools.groupby(
+                sorted(
+                    combinations,
+                    key=lambda combination: combination.resource
+                ),
+                lambda combination: combination.resource
+            )
+        }
+
+        supremum = Searcher.search(
+            object=request.requirement,
+            pool=combinations,
+        )
+
+        return supremum
     
     @property
-    def unavailabilities(self) -> tuple[Resource]:
-
-        filtering = tuple(
+    def building(self) -> dict[Assemblage]:
+        
+        availabilities = tuple(
             filter(
-                lambda resource: not resource.is_available and resource.task.priority <= self.task.priority,
+                lambda resource: resource.is_available,
                 self.resources
             )
         )
 
-        clustering = tuple(
-            Tasking(tuple(resources))
-            for task, resources in itertools.groupby(
-                sorted(
-                    filtering,
-                    key=lambda resource: resource.task.identifier
-                ),
-                lambda resource: resource.task.identifier
-            )
-        )
-            
-        grouping = {
-            resource: sorted(
-                tuple(resource.resources for resource in resources),
-                key=lambda resources: len(resources)
-            )
-            for resource, resources in itertools.groupby(
-                sorted(
-                    clustering,
-                    key=lambda tasking: tasking.resource
-                ),
-                lambda tasking: tasking.resource
-            )
-        }
-
-        return grouping
-    
-    @property
-    def assemblings(self) -> dict[Assembling]:
-
-        assembling: tuple[Assembling] = Assembling\
-            .generator(
-                sorted(
-                    self.availabilities,
+        assemblings: tuple[Assemblage] = tuple(
+            Assemblage.generator(
+                resources=sorted(
+                    availabilities,
                     key=lambda resource: resource.resource
                 )
             )
-
-        grouping = itertools.groupby(
-            sorted(
-                assembling,
-                key=lambda assembling: assembling.resources
-            ),
-            lambda assembling: assembling.resources
         )
 
-        sorting = collections.OrderedDict(
-            {
-                resources: tuple(sorted(assemblings,key=lambda assembling: len(assembling.indices)))
-                for resources, assemblings in grouping
-            }
+        assemblings = {
+            resource: tuple(
+                sorted(
+                    subassemblings,
+                    key=lambda subassembling: subassembling.unit
+                )
+            )
+            for resource, subassemblings in itertools.groupby(
+                sorted(
+                    assemblings,
+                    key=lambda assembling: assembling.resource
+                ),
+                lambda assembling: assembling.resource
+            )
+        }
+
+        supremum = Searcher.search(
+            object=self.task.requirement,
+            pool=assemblings,
         )
 
-        return sorting
+        return supremum
 
-    @property
-    def building(self) -> tuple[Assembling]:
+    def optimize(self, action: Action) -> tuple[typing.Union[Assemblage, Combination]]:
 
-        resources = self.assemblings.keys()
-        
-        resource = dict(enumerate(resources))
-        edge = Edge(head=0, tail=len(resources))
-        pivot = Pivot(window=len(resources))
-
-        while pivot.head <= pivot.tail:
-
-            if self.task.requirement == resource[pivot.middle]:
-                break
-
-            elif self.task.requirement > resource[pivot.middle]:
-                pivot.head = pivot.middle + 1
-
-            elif self.task.requirement < resource[pivot.middle]:
-                pivot.tail = pivot.middle - 1
-        
-        if pivot.middle in edge:
-            return self.assemblings[resource[pivot.middle]] 
-    
-    @property
-    def unbuilding(self) -> tuple[Assembling]:
-        return self.unavailabilities
-
-    def optimize(self, action: Action) -> tuple[Assembling]:
         if action == Action.build:
             return self.building
+        
         elif action == Action.unbuild:
             return self.unbuilding
+    
+    @classmethod
+    def transformer(cls, optimization: tuple[typing.Union[Assemblage, Combination]]):
 
+        if optimization:
+
+            response = list(
+                list(
+                    index.identifier
+                    for index in collection.resources
+                )
+                for collection in optimization
+            )
+                
+            return response
+
+        return None
+        

@@ -18,7 +18,7 @@ class Parameters:
     action: Action
 
 @router.post('/{action}')
-async def build(action: str, body: Body):
+async def optimization(action: str, body: Body):
 
     body = Body(
         resources=tuple(body.resources),
@@ -32,13 +32,7 @@ async def build(action: str, body: Body):
     optimization = Optimizer(resources=body.resources, task=body.task)\
         .optimize(action=parameters.action)
 
-    if optimization:
-        response = list(
-            list(
-                index.identifier
-                for index in assembling.indices
-            )
-            for assembling in optimization
-        )
-            
-        return response
+    optimization = Optimizer\
+        .transformer(optimization=optimization)
+
+    return optimization

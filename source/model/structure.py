@@ -1,14 +1,15 @@
 import dataclasses
 import math
+import enum
 
 from source.utility.data_structure import LexicographicalOrdering
-from source.logic.task import Identifiers, Orderings
+from source.model.task import Identifiers, Orderings
 
 @dataclasses.dataclass(unsafe_hash=True)
 class Task:
 
-    identifier: str
     task: str
+    identifier: str = None
     requirement: int = None
 
     def __post_init__(self):
@@ -26,34 +27,28 @@ class Resource:
     identifier: str
     resource: int
     is_available: bool
-    task: Task = None
-
-@dataclasses.dataclass(unsafe_hash=True)
-class Window:
-
-    head: int
-    tail: int
-
-@dataclasses.dataclass(unsafe_hash=True)
-class Pivot:
-
-    window: int
-    
-    def __post_init__(self):
-
-        self.head = 0
-        self.tail = self.head + self.window - 1
-
-    @property
-    def middle(self):
-        return math.ceil((self.head + self.tail)/2)
+    tasking: Task = None
 
 @dataclasses.dataclass
-class Edge:
+class Tasking:
 
-    head: int
-    tail: int
+    identifier: str
+    resources: tuple[Resource]
 
-    def __contains__(self, element: int):
-        return self.head <= element < self.tail
+    @property
+    def unit(self):
+        return len(self.resources)
     
+    @property
+    def resource(self):
+        return sum(resource.resource for resource in self.resources)
+    
+class Action(enum.Enum):
+
+    build: str = enum.auto()
+    unbuild: str = enum.auto()
+    
+@dataclasses.dataclass
+class Request:
+    unit: int
+    requirement: float
